@@ -8,6 +8,8 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Configuration.AddEnvironmentVariables();
 
 builder.Services.AddControllers();
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
 
 builder.Services.AddCors(options =>
 {
@@ -57,6 +59,12 @@ builder.Services.AddHttpClient(
 
 var app = builder.Build();
 
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
+
 app.UseCors("ClientCors");
 
 app.MapControllers();
@@ -77,7 +85,8 @@ app.MapGet(
             }
         );
     }
-);
+)
+    .WithOpenApi();
 
 // GET /api/weather/current?q=London
 app.MapGet(
@@ -135,7 +144,8 @@ app.MapGet(
             );
         }
     }
-);
+)
+    .WithOpenApi();
 
 // GET /api/weather/forecast?q=London&days=7
 app.MapGet(
@@ -196,7 +206,8 @@ app.MapGet(
             );
         }
     }
-);
+)
+    .WithOpenApi();
 
 app.Run();
 
