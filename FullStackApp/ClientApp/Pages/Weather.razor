@@ -1,0 +1,187 @@
+﻿@page "/weather"
+@using System.Net.Http.Json
+@using System.Text.Json
+@inject IHttpClientFactory HttpClientFactory
+
+<PageTitle>Weather</PageTitle>
+
+<h1>Weather</h1>
+
+<p>Look up current conditions and forecast using the server-side WeatherAPI proxy.</p>
+
+<div class="card mb-3">
+    <div class="card-body">
+        <div class="row g-2 align-items-end">
+            <div class="col-12 col-md-6">
+                <label class="form-label">Location</label>
+                <input class="form-control" @bind="query" placeholder="City, ZIP, or lat,long (e.g. London)" />
+            </div>
+            <div class="col-6 col-md-2">
+                <label class="form-label">Days</label>
+                <input class="form-control" type="number" min="1" max="14" @bind="days" />
+            </div>
+            <div class="col-6 col-md-2">
+                <button class="btn btn-primary w-100" @onclick="Load" disabled="@isLoading">Get</button>
+            </div>
+        </div>
+        @if (isLoading)
+        {
+            <div class="text-muted mt-2">Loading weather data...</div>
+        }
+        @if (!string.IsNullOrWhiteSpace(error))
+        {
+            <div class="text-danger mt-2">@error</div>
+        }
+    </div>
+</div>
+
+@if (current is not null)
+{
+    <div class="card mb-3">
+        <div class="card-body">
+            <div class="d-flex flex-wrap justify-content-between align-items-center">
+                <div>
+                    <h4 class="mb-1">@current.LocationName, @current.Country</h4>
+                    <div class="text-muted">Local time: @current.LocalTime</div>
+                </div>
+                <div class="fs-2 fw-semibold">@current.TempC.ToString("0.#") C</div>
+            </div>
+            <div class="mt-2">@current.ConditionText</div>
+            <div class="text-muted small mt-1">Wind: @current.WindKph.ToString("0.#") kph, Humidity: @current.Humidity%</div>
+            <div class="text-muted small">Updated: @current.LastUpdated</div>
+        </div>
+    </div>
+}
+
+@if (forecast is not null)
+{
+    <div class="card">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <span>Forecast (@forecast.Days.Length days)</span>
+            <span class="text-muted small">@forecast.LocationName</span>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-striped mb-0">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Condition</th>
+                        <th class="text-end">Min (C)</th>
+                        <th class="text-end">Max (C)</th>
+                        <th class="text-end">Avg (C)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var d in forecast.Days)
+                    {
+                        <tr>
+                            <td>@d.Date</td>
+                            <td>@d.ConditionText</td>
+                            <td class="text-end">@d.MinTempC.ToString("0.#")</td>
+                            <td class="text-end">@d.MaxTempC.ToString("0.#")</td>
+                            <td class="text-end">@d.AvgTempC.ToString("0.#")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+@code {
+    private string query = "London";
+    private int days = 7;
+
+    private bool isLoading;
+    private string? error;
+    private CurrentWeatherDto? current;
+    private ForecastDto? forecast;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Load();
+    }
+
+    private async Task Load()
+    {
+        var trimmedQuery = query?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(trimmedQuery))
+        {
+            error = "Please enter a city, ZIP, or latitude/longitude.";
+            return;
+        }
+
+        days = Math.Clamp(days, 1, 14);
+
+        isLoading = true;
+        error = null;
+        current = null;
+        forecast = null;
+
+        try
+        {
+            var http = HttpClientFactory.CreateClient("ServerAPI");
+
+            current = await http.GetFromJsonAsync<CurrentWeatherDto>(
+                $"api/weather/current?q={Uri.EscapeDataString(trimmedQuery)}");
+
+            forecast = await http.GetFromJsonAsync<ForecastDto>(
+                $"api/weather/forecast?q={Uri.EscapeDataString(trimmedQuery)}&days={days}");
+
+            if (current is null || forecast is null)
+            {
+                error = "Weather data was empty or invalid.";
+            }
+        }
+        catch (HttpRequestException ex)
+        {
+            error = $"API request failed: {ex.Message}";
+            Console.WriteLine($"HTTP error: {ex.Message}");
+        }
+        catch (NotSupportedException ex)
+        {
+            error = "The weather data format is not supported.";
+            Console.WriteLine($"Format error: {ex.Message}");
+        }
+        catch (JsonException ex)
+        {
+            error = "Weather data could not be parsed.";
+            Console.WriteLine($"JSON error: {ex.Message}");
+        }
+        catch (Exception ex)
+        {
+            error = $"Unexpected error: {ex.Message}";
+            Console.WriteLine($"Unexpected error: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    public sealed record CurrentWeatherDto(
+        string LocationName,
+        string Country,
+        string LocalTime,
+        double TempC,
+        string ConditionText,
+        double WindKph,
+        int Humidity,
+        string LastUpdated
+    );
+
+    public sealed record ForecastDto(
+        string LocationName,
+        string Country,
+        string LocalTime,
+        ForecastDayDto[] Days
+    );
+
+    public sealed record ForecastDayDto(
+        string Date,
+        double MaxTempC,
+        double MinTempC,
+        double AvgTempC,
+        string ConditionText
+    );
+}

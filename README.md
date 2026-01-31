@@ -1,47 +1,43 @@
-# InventoryHub - FullStackApp
 
-Bu klasor, Promt1.md adimlarina gore olusturulan Blazor (ClientApp) + Minimal API (ServerApp) cozumunu icerir.
+# InventoryHub
 
-## Calistirma Adimlari
+InventoryHub is a simple full-stack demo application built with:
 
-1) API base URL ayari
-   - Dosya: `ClientApp/wwwroot/appsettings.json`
-   - Varsayilan: `http://localhost:5249`
-   - ServerApp'in portu farkliysa bu degeri guncelleyin.
+- **Blazor WebAssembly** (front-end) — `ClientApp`
+- **ASP.NET Core Minimal API** (back-end) — `ServerApp`
 
-2) ServerApp calistir
+The API returns a standardized JSON product list including a nested `category` object, and the front-end consumes and displays it. The project also includes integration debugging (route/CORS/JSON handling) and performance optimizations (client/server caching).
 
-```bash
-cd ServerApp
-dotnet run
-```
+---
 
-3) ClientApp calistir
+## Features
 
-```bash
-cd ClientApp
-dotnet run
-```
+- **End-to-end integration** between Blazor WASM and Minimal API
+- **Stable API contract**: `id`, `name`, `price`, `stock`, and nested `category { id, name }`
+- **Debug fixes**
+  - Updated API route: `/api/products` → `/api/productlist`
+  - CORS configuration to allow the front-end to call the API (when running separately)
+  - JSON error handling to prevent UI breakage on invalid responses
+- **Performance optimizations**
+  - Reduced redundant API calls in the front-end (light caching)
+  - Back-end caching to reduce repeated work (optional TTL/ETag depending on implementation)
 
-4) Tarayici
-   - Client: `http://localhost:<client-port>/fetchproducts`
-   - API: `http://localhost:5249/api/productlist`
+---
 
-## Kisa Kullanim Notu
+## Project Structure
 
-- ClientApp, `FetchProducts` sayfasinda `/api/productlist` endpoint'inden veri ceker (kategori bilgisi nested gelir).
-- ServerApp tarafinda CORS acik (AllowAnyOrigin/AllowAnyHeader/AllowAnyMethod).
-- Guvenlik ihtiyaciniz varsa CORS politikasini sinirlandirin.
+- `ClientApp/` — Blazor WebAssembly front-end
+- `ServerApp/` — Minimal API back-end
+- `FullStackSolution.sln` — Solution file
+- `REFLECTION.md` — Summary of how Microsoft Copilot assisted across all activities
 
-## Ornek API Cevabi (HTTP)
+---
 
-Ornek istek:
+## API
 
-```bash
-curl http://localhost:5249/api/productlist
-```
+### GET `/api/productlist`
 
-Ornek JSON:
+Example response:
 
 ```json
 [
@@ -50,26 +46,14 @@ Ornek JSON:
     "name": "Laptop",
     "price": 1200.5,
     "stock": 25,
-    "category": {
-      "id": 101,
-      "name": "Electronics"
-    }
+    "category": { "id": 101, "name": "Electronics" }
   },
   {
     "id": 2,
     "name": "Headphones",
-    "price": 50.0,
+    "price": 50,
     "stock": 100,
-    "category": {
-      "id": 102,
-      "name": "Accessories"
-    }
+    "category": { "id": 102, "name": "Accessories" }
   }
 ]
 ```
-
-## Dosyalar
-
-- `ServerApp/Program.cs`: Minimal API ve `/api/productlist` endpoint'i (nested category)
-- `ClientApp/Pages/FetchProducts.razor`: UI + API cagri ve hata yonetimi
-- `ClientApp/wwwroot/appsettings.json`: ApiBaseUrl ayari

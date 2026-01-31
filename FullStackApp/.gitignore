@@ -1,0 +1,59 @@
+## Build artifacts
+bin/
+obj/
+out/
+
+## User-specific files
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+## Visual Studio Code
+.vscode/
+.history/
+
+## Logs
+*.log
+
+## NuGet packages
+*.nupkg
+packages/
+.nuget/
+
+## ASP.NET / Blazor
+wwwroot/dist/
+wwwroot/.cache/
+
+## Environment files
+*.env
+
+## Temporary files
+*.tmp
+*.temp
+
+## Rider / JetBrains
+.idea/
+*.iml
+
+## OS-specific
+# Windows
+Thumbs.db
+Desktop.ini
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Linux
+*~
+
+## Node (if used for tooling)
+node_modules/
+
+## Publish output
+publish/
+
+.env
+
