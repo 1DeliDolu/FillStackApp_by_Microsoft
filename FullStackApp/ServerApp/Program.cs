@@ -1,6 +1,6 @@
+using System.Text.Json;
 using DotNetEnv;
 using Microsoft.Extensions.Caching.Memory;
-using System.Text.Json;
 
 Env.TraversePath().Load();
 
@@ -20,7 +20,8 @@ builder.Services.ConfigureHttpJsonOptions(options =>
 });
 
 // Read config from environment
-var weatherBaseUrl = builder.Configuration["WEATHER_API_BASE_URL"] ?? "https://api.weatherapi.com/v1/";
+var weatherBaseUrl =
+    builder.Configuration["WEATHER_API_BASE_URL"] ?? "https://api.weatherapi.com/v1/";
 if (!weatherBaseUrl.EndsWith("/", StringComparison.Ordinal))
 {
     weatherBaseUrl += "/";
@@ -29,17 +30,22 @@ if (!weatherBaseUrl.EndsWith("/", StringComparison.Ordinal))
 var weatherApiKey = builder.Configuration["WEATHER_API_KEY"];
 if (string.IsNullOrWhiteSpace(weatherApiKey))
 {
-    throw new InvalidOperationException("WEATHER_API_KEY is missing. Put it into .env (and do not commit it).");
+    throw new InvalidOperationException(
+        "WEATHER_API_KEY is missing. Put it into .env (and do not commit it)."
+    );
 }
 
 var weatherApiKeyValue = weatherApiKey.Trim();
 
 // HttpClient for WeatherAPI
-builder.Services.AddHttpClient("WeatherApi", client =>
-{
-    client.BaseAddress = new Uri(weatherBaseUrl);
-    client.Timeout = TimeSpan.FromSeconds(10);
-});
+builder.Services.AddHttpClient(
+    "WeatherApi",
+    client =>
+    {
+        client.BaseAddress = new Uri(weatherBaseUrl);
+        client.Timeout = TimeSpan.FromSeconds(10);
+    }
+);
 
 var app = builder.Build();
 
@@ -55,10 +61,10 @@ app.MapGet(
         return Results.Ok(
             new[]
             {
-                new ProductDto(1, "Laptop", 1200.50, 25),
-                new ProductDto(2, "Headphones", 50.00, 100),
-                new ProductDto(3, "Keyboard", 75.99, 50),
-                new ProductDto(4, "Mouse", 40.00, 150),
+                new ProductDto(1, "Laptop", 1200.50, 25, new CategoryDto(1, "Electronics")),
+                new ProductDto(2, "Headphones", 50.00, 100, new CategoryDto(1, "Electronics")),
+                new ProductDto(3, "Keyboard", 75.99, 50, new CategoryDto(2, "Accessories")),
+                new ProductDto(4, "Mouse", 40.00, 150, new CategoryDto(2, "Accessories")),
             }
         );
     }
@@ -71,7 +77,9 @@ app.MapGet(
     {
         if (string.IsNullOrWhiteSpace(q))
         {
-            return Results.BadRequest(new { message = "Query parameter 'q' is required (city, zip, or lat,long)." });
+            return Results.BadRequest(
+                new { message = "Query parameter 'q' is required (city, zip, or lat,long)." }
+            );
         }
 
         var trimmedQuery = q.Trim();
@@ -82,7 +90,8 @@ app.MapGet(
         }
 
         var http = httpFactory.CreateClient("WeatherApi");
-        var url = $"current.json?key={Uri.EscapeDataString(weatherApiKeyValue)}&q={Uri.EscapeDataString(trimmedQuery)}";
+        var url =
+            $"current.json?key={Uri.EscapeDataString(weatherApiKeyValue)}&q={Uri.EscapeDataString(trimmedQuery)}";
 
         HttpResponseMessage resp;
         try
@@ -91,7 +100,10 @@ app.MapGet(
         }
         catch (Exception ex)
         {
-            return Results.Problem($"WeatherAPI request failed: {ex.Message}", statusCode: StatusCodes.Status502BadGateway);
+            return Results.Problem(
+                $"WeatherAPI request failed: {ex.Message}",
+                statusCode: StatusCodes.Status502BadGateway
+            );
         }
 
         var body = await resp.Content.ReadAsStringAsync();
@@ -108,7 +120,10 @@ app.MapGet(
         }
         catch (JsonException jex)
         {
-            return Results.Problem($"Malformed JSON from WeatherAPI: {jex.Message}", statusCode: StatusCodes.Status502BadGateway);
+            return Results.Problem(
+                $"Malformed JSON from WeatherAPI: {jex.Message}",
+                statusCode: StatusCodes.Status502BadGateway
+            );
         }
     }
 );
@@ -136,7 +151,8 @@ app.MapGet(
         }
 
         var http = httpFactory.CreateClient("WeatherApi");
-        var url = $"forecast.json?key={Uri.EscapeDataString(weatherApiKeyValue)}&q={Uri.EscapeDataString(trimmedQuery)}&days={days}";
+        var url =
+            $"forecast.json?key={Uri.EscapeDataString(weatherApiKeyValue)}&q={Uri.EscapeDataString(trimmedQuery)}&days={days}";
 
         HttpResponseMessage resp;
         try
@@ -145,7 +161,10 @@ app.MapGet(
         }
         catch (Exception ex)
         {
-            return Results.Problem($"WeatherAPI request failed: {ex.Message}", statusCode: StatusCodes.Status502BadGateway);
+            return Results.Problem(
+                $"WeatherAPI request failed: {ex.Message}",
+                statusCode: StatusCodes.Status502BadGateway
+            );
         }
 
         var body = await resp.Content.ReadAsStringAsync();
@@ -162,7 +181,10 @@ app.MapGet(
         }
         catch (JsonException jex)
         {
-            return Results.Problem($"Malformed JSON from WeatherAPI: {jex.Message}", statusCode: StatusCodes.Status502BadGateway);
+            return Results.Problem(
+                $"Malformed JSON from WeatherAPI: {jex.Message}",
+                statusCode: StatusCodes.Status502BadGateway
+            );
         }
     }
 );
@@ -205,13 +227,15 @@ static ForecastDto MapForecast(string json)
         var day = d.GetProperty("day");
         var condition = day.GetProperty("condition");
 
-        forecastDays.Add(new ForecastDayDto(
-            Date: d.GetProperty("date").GetString() ?? string.Empty,
-            MaxTempC: day.GetProperty("maxtemp_c").GetDouble(),
-            MinTempC: day.GetProperty("mintemp_c").GetDouble(),
-            AvgTempC: day.GetProperty("avgtemp_c").GetDouble(),
-            ConditionText: condition.GetProperty("text").GetString() ?? string.Empty
-        ));
+        forecastDays.Add(
+            new ForecastDayDto(
+                Date: d.GetProperty("date").GetString() ?? string.Empty,
+                MaxTempC: day.GetProperty("maxtemp_c").GetDouble(),
+                MinTempC: day.GetProperty("mintemp_c").GetDouble(),
+                AvgTempC: day.GetProperty("avgtemp_c").GetDouble(),
+                ConditionText: condition.GetProperty("text").GetString() ?? string.Empty
+            )
+        );
     }
 
     return new ForecastDto(
@@ -248,4 +272,6 @@ public sealed record ForecastDayDto(
     string ConditionText
 );
 
-record ProductDto(int Id, string Name, double Price, int Stock);
+record ProductDto(int Id, string Name, double Price, int Stock, CategoryDto Category);
+
+record CategoryDto(int Id, string Name);

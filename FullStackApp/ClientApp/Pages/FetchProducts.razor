@@ -25,22 +25,58 @@ else
         </div>
         <div class="table-responsive">
             <table class="table table-striped table-hover align-middle mb-0">
-                <thead>
+                <thead class="table-light">
                     <tr>
-                        <th scope="col">#</th>
-                        <th scope="col">Product</th>
-                        <th scope="col" class="text-end">Price</th>
-                        <th scope="col" class="text-end">Stock</th>
+                        <th scope="col" class="@($"align-middle {SortClass(nameof(Product.Id))}")">
+                            <button type="button"
+                                    class="btn btn-sm btn-link p-0 text-decoration-none fw-semibold w-100 d-flex align-items-center justify-content-start gap-1 text-nowrap"
+                                    @onclick="() => SetSort(nameof(Product.Id))">
+                                # @SortIndicator(nameof(Product.Id))
+                            </button>
+                        </th>
+
+                        <th scope="col" class="@($"align-middle {SortClass(nameof(Product.Name))}")">
+                            <button type="button"
+                                    class="btn btn-sm btn-link p-0 text-decoration-none fw-semibold w-100 d-flex align-items-center justify-content-start gap-1 text-nowrap"
+                                    @onclick="() => SetSort(nameof(Product.Name))">
+                                Product @SortIndicator(nameof(Product.Name))
+                            </button>
+                        </th>
+
+                        <th scope="col" class="@($"align-middle {SortClass(CategorySortKey)}")">
+                            <button type="button"
+                                    class="btn btn-sm btn-link p-0 text-decoration-none fw-semibold w-100 d-flex align-items-center justify-content-start gap-1 text-nowrap"
+                                    @onclick="() => SetSort(CategorySortKey)">
+                                Category @SortIndicator(CategorySortKey)
+                            </button>
+                        </th>
+
+                        <th scope="col" class="@($"text-end align-middle {SortClass(nameof(Product.Price))}")">
+                            <button type="button"
+                                    class="btn btn-sm btn-link p-0 text-decoration-none fw-semibold w-100 d-flex align-items-center justify-content-end gap-1 text-nowrap"
+                                    @onclick="() => SetSort(nameof(Product.Price))">
+                                Price @SortIndicator(nameof(Product.Price))
+                            </button>
+                        </th>
+
+                        <th scope="col" class="@($"text-end align-middle {SortClass(nameof(Product.Stock))}")">
+                            <button type="button"
+                                    class="btn btn-sm btn-link p-0 text-decoration-none fw-semibold w-100 d-flex align-items-center justify-content-end gap-1 text-nowrap"
+                                    @onclick="() => SetSort(nameof(Product.Stock))">
+                                Stock @SortIndicator(nameof(Product.Stock))
+                            </button>
+                        </th>
                     </tr>
                 </thead>
                 <tbody>
-                    @foreach (var p in products)
+                    @foreach (var p in DisplayProducts)
                     {
                         <tr>
-                            <th scope="row">@p.Id</th>
-                            <td class="fw-semibold">@p.Name</td>
-                            <td class="text-end">$@p.Price.ToString("F2")</td>
-                            <td class="text-end">@p.Stock</td>
+                            <th scope="row" class="@SortClass(nameof(Product.Id))">@p.Id</th>
+                            <td class="@($"fw-semibold {SortClass(nameof(Product.Name))}")">@p.Name</td>
+                            <td class="@SortClass(CategorySortKey)">@p.Category?.Name</td>
+                            <td class="@($"text-end {SortClass(nameof(Product.Price))}")">$@p.Price.ToString("F2")</td>
+                            <td class="@($"text-end {SortClass(nameof(Product.Stock))}")">@p.Stock</td>
                         </tr>
                     }
                 </tbody>
@@ -53,6 +89,14 @@ else
     private Product[]? products;
     private bool isLoading = true;
     private string? error;
+
+    private const string CategorySortKey = "Category";
+
+    private string sortColumn = nameof(Product.Id);
+    private bool sortAsc = true;
+
+    private IEnumerable<Product> DisplayProducts =>
+        products is null ? Array.Empty<Product>() : ApplySort(products);
 
     protected override async Task OnInitializedAsync()
     {
@@ -94,12 +138,70 @@ else
         }
     }
 
+    private void SetSort(string column)
+    {
+        if (sortColumn == column)
+        {
+            sortAsc = !sortAsc;
+        }
+        else
+        {
+            sortColumn = column;
+            sortAsc = true;
+        }
+    }
+
+    private Microsoft.AspNetCore.Components.RenderFragment SortIndicator(string column) => builder =>
+    {
+        if (sortColumn != column) return;
+
+        builder.AddMarkupContent(0, "&nbsp;");
+
+        var icon = sortAsc ? "bi bi-caret-up-fill" : "bi bi-caret-down-fill";
+        builder.OpenElement(1, "i");
+        builder.AddAttribute(2, "class", icon);
+        builder.AddAttribute(3, "aria-hidden", "true");
+        builder.CloseElement();
+    };
+
+    private string SortClass(string column) => sortColumn == column ? "sorted-col" : string.Empty;
+
+    private IEnumerable<Product> ApplySort(IEnumerable<Product> source)
+    {
+        return (sortColumn, sortAsc) switch
+        {
+            (nameof(Product.Id), true) => source.OrderBy(p => p.Id),
+            (nameof(Product.Id), false) => source.OrderByDescending(p => p.Id),
+
+            (nameof(Product.Name), true) => source.OrderBy(p => p.Name ?? string.Empty),
+            (nameof(Product.Name), false) => source.OrderByDescending(p => p.Name ?? string.Empty),
+
+            (CategorySortKey, true) => source.OrderBy(p => p.Category?.Name ?? string.Empty),
+            (CategorySortKey, false) => source.OrderByDescending(p => p.Category?.Name ?? string.Empty),
+
+            (nameof(Product.Price), true) => source.OrderBy(p => p.Price),
+            (nameof(Product.Price), false) => source.OrderByDescending(p => p.Price),
+
+            (nameof(Product.Stock), true) => source.OrderBy(p => p.Stock),
+            (nameof(Product.Stock), false) => source.OrderByDescending(p => p.Stock),
+
+            _ => source
+        };
+    }
+
     public sealed class Product
     {
         public int Id { get; set; }
         public string? Name { get; set; }
         public double Price { get; set; }
         public int Stock { get; set; }
+        public Category? Category { get; set; }
+    }
+
+    public sealed class Category
+    {
+        public int Id { get; set; }
+        public string? Name { get; set; }
     }
 }
 
@@ -135,6 +237,7 @@ else
         color: #475569;
         background-color: #f8fafc;
         border-bottom: 1px solid #e2e8f0;
+        vertical-align: middle;
     }
 
     .table tbody tr {
@@ -144,4 +247,14 @@ else
     .table tbody tr:hover {
         background-color: #eef2ff;
     }
+
+    .table thead th.sorted-col {
+        background-color: #e2e8ff;
+    }
+
+    .table tbody td.sorted-col,
+    .table tbody th.sorted-col {
+        background-color: #f1f5ff;
+    }
+
 </style>

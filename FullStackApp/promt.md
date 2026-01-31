@@ -1,219 +1,360 @@
 
-Tamam — Frontend’de **“Realtime API / Forecast API / History API”** seçeneklerinden biri seçilecek ve **seçime göre backend endpoint’i çağrılıp** uygun data gösterilecek.
+Tamam — `/todo` sayfasını **gerçek bir Todo uygulamasına** çevirelim:
 
-Aşağıda **(1) Backend’e History ekleme** + **(2) Frontend’de seçim UI’ı + koşullu gösterim** + **(3) Test** adımlarını, kopyala-yapıştır olacak şekilde veriyorum.
+* ✅ **Model** (TodoItem + request modelleri)
+* ✅ **Backend Controller** (GET/POST/PUT/DELETE)
+* ✅ Frontend (Blazor) **list / add / edit / delete / done**
+* ✅ **JS ile form kontrolü** (boş / whitespace engelle) + HTML `required`
+* ✅ Yeni kayıt **AJAX ile backend’e gitsin** ve **sayfa yenilenmeden** ekranda görünsün (Blazor’da bu zaten AJAX + state update; full refresh yok)
 
-> Dış servis: WeatherAPI.com
-> History endpoint’inde `dt` parametresi zorunlu; `end_dt` opsiyonel (pro plan), tarih aralığı/format kısıtları var. ([WeatherAPI](https://www.weatherapi.com/docs/?utm_source=chatgpt.com "Weather and Geolocation API JSON and XML"))
+Aşağıdaki adımları sırayla uygula.
 
 ---
 
-## 1) Backend: History endpoint’i ekle (ServerApp)
+# 1) Backend: Todo Controller + Model
 
-### 1.1 `.env` (sen zaten var dedin)
+## 1.1 Program.cs: Controllers’ı aç
 
-```env
-WEATHER_API_BASE_URL=http://api.weatherapi.com/v1/
-WEATHER_API_KEY=YOUR_API_KEY_HERE
-```
-
-### 1.2 `ServerApp/Program.cs` içine History endpoint’i ekle
-
-Mevcut `/api/weather/current` ve `/api/weather/forecast` yanında şunu da ekle:
+`ServerApp/Program.cs` içine (builder kısmına) şunu ekle:
 
 ```csharp
-// GET /api/weather/history?q=London&dt=2022-01-01
-app.MapGet("/api/weather/history", async (string q, string dt, IHttpClientFactory httpFactory, IMemoryCache cache) =>
-{
-    if (string.IsNullOrWhiteSpace(q))
-        return Results.BadRequest(new { message = "Query parameter 'q' is required." });
-
-    if (string.IsNullOrWhiteSpace(dt))
-        return Results.BadRequest(new { message = "Query parameter 'dt' is required (yyyy-MM-dd)." });
-
-    // Basit format kontrolü (isteğe bağlı ama faydalı)
-    if (!DateOnly.TryParse(dt, out _))
-        return Results.BadRequest(new { message = "dt must be a valid date in yyyy-MM-dd format." });
-
-    // History dataları değişmez → cache'i daha uzun tutabilirsin
-    var cacheKey = $"weather_history::{q.Trim().ToLowerInvariant()}::{dt}";
-    if (cache.TryGetValue(cacheKey, out object? cached) && cached is not null)
-        return Results.Ok(cached);
-
-    var http = httpFactory.CreateClient("WeatherApi");
-    var url = $"history.json?key={Uri.EscapeDataString(weatherApiKey)}&q={Uri.EscapeDataString(q)}&dt={Uri.EscapeDataString(dt)}";
-
-    HttpResponseMessage resp;
-    try
-    {
-        resp = await http.GetAsync(url);
-    }
-    catch (Exception ex)
-    {
-        return Results.Problem($"WeatherAPI request failed: {ex.Message}", statusCode: 502);
-    }
-
-    var body = await resp.Content.ReadAsStringAsync();
-    if (!resp.IsSuccessStatusCode)
-        return Results.Problem($"WeatherAPI error: {body}", statusCode: (int)resp.StatusCode);
-
-    try
-    {
-        // History response, Forecast objesine benzer → aynı mapper mantığı
-        var dto = MapForecast(body);
-
-        cache.Set(cacheKey, dto, TimeSpan.FromHours(6));
-        return Results.Ok(dto);
-    }
-    catch (JsonException jex)
-    {
-        return Results.Problem($"Malformed JSON from WeatherAPI: {jex.Message}", statusCode: 502);
-    }
-});
+builder.Services.AddControllers();
 ```
 
-**Notlar**
+Ve `app` oluşturduktan sonra, endpoint mapping’e ekle:
 
-* WeatherAPI dokümanında History için `dt` (gün) zorunlu; `end_dt` opsiyonel ve plan kısıtı var. ([WeatherAPI](https://www.weatherapi.com/docs/?utm_source=chatgpt.com "Weather and Geolocation API JSON and XML"))
-* Sen şimdilik tek gün (`dt`) ile başlayınca UI/UX ve implementasyon daha temiz olur.
+```csharp
+app.MapControllers();
+```
+
+> Mevcut Minimal API endpoint’lerin (`/api/productlist`, weather vs.) aynen kalabilir.
 
 ---
 
-## 2) Frontend: Seçim (Realtime / Forecast / History) ve koşullu UI
+## 1.2 Model dosyası oluştur
 
-Aşağıdaki örnek, tek sayfada seçim yapıp **seçime göre** doğru endpoint’i çağırır ve uygun input’ları açar:
+`ServerApp/Models/TodoModels.cs` oluştur:
 
-* Realtime: sadece `q`
-* Forecast: `q + days`
-* History: `q + dt (date picker)`
+```csharp
+namespace ServerApp.Models;
 
-### 2.1 `ClientApp/Pages/Weather.razor` (tam sayfa örneği)
+public sealed class TodoItem
+{
+    public int Id { get; set; }
+    public string Title { get; set; } = "";
+    public bool IsDone { get; set; }
+    public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+}
 
-> Mevcut Weather.razor’unu bununla değiştir veya buna göre düzenle.
+public sealed class CreateTodoRequest
+{
+    public string? Title { get; set; }
+}
+
+public sealed class UpdateTodoRequest
+{
+    public string? Title { get; set; }
+    public bool IsDone { get; set; }
+}
+```
+
+---
+
+## 1.3 Controller oluştur
+
+`ServerApp/Controllers/TodosController.cs` oluştur:
+
+```csharp
+using Microsoft.AspNetCore.Mvc;
+using ServerApp.Models;
+using System.Collections.Concurrent;
+
+namespace ServerApp.Controllers;
+
+[ApiController]
+[Route("api/todos")]
+public class TodosController : ControllerBase
+{
+    private static readonly ConcurrentDictionary<int, TodoItem> Store = new();
+    private static int _nextId = 0;
+
+    [HttpGet]
+    public ActionResult<IEnumerable<TodoItem>> GetAll()
+    {
+        var items = Store.Values
+            .OrderByDescending(t => t.Id)
+            .ToArray();
+
+        return Ok(items);
+    }
+
+    [HttpGet("{id:int}")]
+    public ActionResult<TodoItem> GetById(int id)
+    {
+        return Store.TryGetValue(id, out var item) ? Ok(item) : NotFound();
+    }
+
+    [HttpPost]
+    public ActionResult<TodoItem> Create([FromBody] CreateTodoRequest req)
+    {
+        var title = (req.Title ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(title))
+            return BadRequest(new { message = "Title is required." });
+
+        if (title.Length > 200)
+            return BadRequest(new { message = "Title must be <= 200 characters." });
+
+        var id = Interlocked.Increment(ref _nextId);
+
+        var item = new TodoItem
+        {
+            Id = id,
+            Title = title,
+            IsDone = false,
+            CreatedAt = DateTimeOffset.UtcNow
+        };
+
+        Store[id] = item;
+
+        return CreatedAtAction(nameof(GetById), new { id }, item);
+    }
+
+    [HttpPut("{id:int}")]
+    public ActionResult<TodoItem> Update(int id, [FromBody] UpdateTodoRequest req)
+    {
+        if (!Store.TryGetValue(id, out var existing))
+            return NotFound();
+
+        var title = (req.Title ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(title))
+            return BadRequest(new { message = "Title is required." });
+
+        if (title.Length > 200)
+            return BadRequest(new { message = "Title must be <= 200 characters." });
+
+        existing.Title = title;
+        existing.IsDone = req.IsDone;
+
+        Store[id] = existing;
+        return Ok(existing);
+    }
+
+    [HttpDelete("{id:int}")]
+    public IActionResult Delete(int id)
+    {
+        return Store.TryRemove(id, out _) ? NoContent() : NotFound();
+    }
+}
+```
+
+✅ Backend tamam: `GET/POST/PUT/DELETE api/todos`
+
+---
+
+# 2) Frontend: Todo Page (Add/Edit/Delete/Done) + AJAX (HttpClient)
+
+## 2.1 Yeni sayfa: `ClientApp/Pages/Todo.razor`
+
+Mevcut counter sayfanın yerine bunu koy (PageTitle dahil):
 
 ```razor
-@page "/weather"
+@page "/todo"
 @using System.Net.Http.Json
+@using System.Text.Json
 @inject HttpClient Http
+@inject IJSRuntime JS
 
-<h3>Weather</h3>
+<PageTitle>Todo</PageTitle>
 
-<div style="display:flex; gap:12px; flex-wrap:wrap; align-items:end;">
-    <div>
-        <label>Mode</label><br />
-        <select @bind="mode" style="min-width:200px;">
-            <option value="realtime">Realtime API</option>
-            <option value="forecast">Forecast API</option>
-            <option value="history">History API</option>
-        </select>
-    </div>
-
-    <div>
-        <label>Location (q)</label><br />
-        <input @bind="query" placeholder="London / 07112 / lat,long" style="min-width:260px;" />
-    </div>
-
-    @if (mode == "forecast")
-    {
-        <div>
-            <label>Days</label><br />
-            <input type="number" @bind="days" min="1" max="14" style="width:90px;" />
-        </div>
-    }
-
-    @if (mode == "history")
-    {
-        <div>
-            <label>Date (dt)</label><br />
-            <input type="date" @bind="historyDate" />
-        </div>
-    }
-
-    <button @onclick="Load" style="height:32px;">Get</button>
-</div>
+<h3 class="mb-3">Todo</h3>
 
 @if (!string.IsNullOrWhiteSpace(error))
 {
-    <p style="color:#b00020; margin-top:12px;">@error</p>
+    <div class="alert alert-danger" role="alert">@error</div>
 }
 
-@if (mode == "realtime" && current is not null)
+<div class="card shadow-sm mb-3">
+    <div class="card-body">
+        <form id="todoForm" novalidate @onsubmit="AddTodo">
+            <div class="row g-2 align-items-center">
+                <div class="col-12 col-md-8">
+                    <div class="input-group">
+                        <span class="input-group-text">
+                            <i class="bi bi-check2-square" aria-hidden="true"></i>
+                        </span>
+
+                        <input id="newTodoTitle"
+                               class="form-control"
+                               placeholder="Add a new todo..."
+                               @bind="newTitle"
+                               @bind:event="oninput"
+                               required />
+
+                        <div class="invalid-feedback">
+                            Title cannot be empty.
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-12 col-md-auto">
+                    <button type="submit" class="btn btn-primary w-100">
+                        Add
+                    </button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>
+
+@if (isLoading)
 {
-    <h4>Current</h4>
-    <p>
-        <strong>@current.LocationName</strong>, @current.Country — @current.LocalTime <br />
-        @current.TempC °C, @current.ConditionText <br />
-        Wind: @current.WindKph kph — Humidity: @current.Humidity% <br />
-        Updated: @current.LastUpdated
-    </p>
+    <div class="d-flex align-items-center gap-2">
+        <div class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></div>
+        <span>Loading...</span>
+    </div>
 }
-
-@if ((mode == "forecast" || mode == "history") && forecastLike is not null)
+else if (todos.Count == 0)
 {
-    <h4>@(mode == "forecast" ? $"Forecast ({forecastLike.Days.Length} days)" : "History (daily summary)")</h4>
-    <p><strong>@forecastLike.LocationName</strong>, @forecastLike.Country — @forecastLike.LocalTime</p>
+    <div class="alert alert-secondary" role="alert">No todos yet.</div>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table table-hover align-middle">
+            <thead class="table-light">
+                <tr>
+                    <th style="width:60px;">Done</th>
+                    <th>Title</th>
+                    <th class="text-end" style="width:180px;">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var t in todos)
+                {
+                    <tr>
+                        <td>
+                            <input class="form-check-input"
+                                   type="checkbox"
+                                   checked="@t.IsDone"
+                                   @onchange="(e) => ToggleDone(t, (bool)e.Value!)" />
+                        </td>
 
-    <ul>
-        @foreach (var d in forecastLike.Days)
-        {
-            <li>
-                <strong>@d.Date</strong> — @d.ConditionText
-                (min: @d.MinTempC °C, max: @d.MaxTempC °C, avg: @d.AvgTempC °C)
-            </li>
-        }
-    </ul>
+                        <td>
+                            @if (editId == t.Id)
+                            {
+                                <div class="input-group">
+                                    <input id="@GetEditInputId(t.Id)"
+                                           class="form-control"
+                                           @bind="editTitle"
+                                           @bind:event="oninput"
+                                           required />
+                                    <div class="invalid-feedback">Title cannot be empty.</div>
+                                </div>
+                            }
+                            else
+                            {
+                                <span class="@(t.IsDone ? "text-decoration-line-through text-muted" : "")">
+                                    @t.Title
+                                </span>
+                            }
+                        </td>
+
+                        <td class="text-end">
+                            @if (editId == t.Id)
+                            {
+                                <button class="btn btn-sm btn-success me-2"
+                                        @onclick="() => SaveEdit(t)">
+                                    Save
+                                </button>
+                                <button class="btn btn-sm btn-outline-secondary"
+                                        @onclick="CancelEdit">
+                                    Cancel
+                                </button>
+                            }
+                            else
+                            {
+                                <button class="btn btn-sm btn-outline-primary me-2"
+                                        @onclick="() => StartEdit(t)">
+                                    Edit
+                                </button>
+                                <button class="btn btn-sm btn-outline-danger"
+                                        @onclick="() => DeleteTodo(t)">
+                                    Delete
+                                </button>
+                            }
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
 }
 
 @code {
-    // "realtime" | "forecast" | "history"
-    private string mode = "realtime";
-
-    private string query = "London";
-    private int days = 7;
-
-    // input type="date" → yyyy-MM-dd string
-    private string historyDate = DateTime.UtcNow.AddDays(-1).ToString("yyyy-MM-dd");
-
+    private bool isLoading = true;
     private string? error;
 
-    private CurrentWeatherDto? current;
-    private ForecastDto? forecastLike;
+    private List<TodoItem> todos = new();
 
-    private async Task Load()
+    private string newTitle = "";
+
+    private int? editId = null;
+    private string editTitle = "";
+
+    protected override async Task OnInitializedAsync()
     {
+        await LoadTodos();
+    }
+
+    private async Task LoadTodos()
+    {
+        isLoading = true;
         error = null;
-        current = null;
-        forecastLike = null;
 
         try
         {
-            if (string.IsNullOrWhiteSpace(query))
+            var data = await Http.GetFromJsonAsync<List<TodoItem>>("api/todos");
+            todos = data ?? new List<TodoItem>();
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    // ✅ Add (AJAX) + JS validation (no empty / whitespace)
+    private async Task AddTodo()
+    {
+        error = null;
+
+        // JS: prevent empty/whitespace + bootstrap invalid class
+        var ok = await JS.InvokeAsync<bool>("todoForms.validateRequiredTrimmed", "newTodoTitle");
+        if (!ok) return;
+
+        var title = newTitle.Trim();
+
+        try
+        {
+            var resp = await Http.PostAsJsonAsync("api/todos", new { Title = title });
+            if (!resp.IsSuccessStatusCode)
             {
-                error = "Please enter a location (q).";
+                error = await resp.Content.ReadAsStringAsync();
                 return;
             }
 
-            if (mode == "realtime")
-            {
-                current = await Http.GetFromJsonAsync<CurrentWeatherDto>(
-                    $"api/weather/current?q={Uri.EscapeDataString(query)}");
-            }
-            else if (mode == "forecast")
-            {
-                forecastLike = await Http.GetFromJsonAsync<ForecastDto>(
-                    $"api/weather/forecast?q={Uri.EscapeDataString(query)}&days={days}");
-            }
-            else if (mode == "history")
-            {
-                if (string.IsNullOrWhiteSpace(historyDate))
-                {
-                    error = "Please select a date (dt).";
-                    return;
-                }
+            var created = await resp.Content.ReadFromJsonAsync<TodoItem>(
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
 
-                // History endpoint expects dt=yyyy-MM-dd
-                forecastLike = await Http.GetFromJsonAsync<ForecastDto>(
-                    $"api/weather/history?q={Uri.EscapeDataString(query)}&dt={Uri.EscapeDataString(historyDate)}");
+            if (created is not null)
+            {
+                // ✅ UI update without page reload
+                todos.Insert(0, created);
+                newTitle = "";
+                await JS.InvokeVoidAsync("todoForms.clearValidation", "newTodoTitle");
             }
         }
         catch (Exception ex)
@@ -222,38 +363,180 @@ Aşağıdaki örnek, tek sayfada seçim yapıp **seçime göre** doğru endpoint
         }
     }
 
-    // DTOs (backend ile aynı contract)
-    public sealed record CurrentWeatherDto(
-        string LocationName,
-        string Country,
-        string LocalTime,
-        double TempC,
-        string ConditionText,
-        double WindKph,
-        int Humidity,
-        string LastUpdated
-    );
+    private void StartEdit(TodoItem t)
+    {
+        editId = t.Id;
+        editTitle = t.Title;
+    }
 
-    public sealed record ForecastDto(
-        string LocationName,
-        string Country,
-        string LocalTime,
-        ForecastDayDto[] Days
-    );
+    private void CancelEdit()
+    {
+        editId = null;
+        editTitle = "";
+    }
 
-    public sealed record ForecastDayDto(
-        string Date,
-        double MaxTempC,
-        double MinTempC,
-        double AvgTempC,
-        string ConditionText
-    );
+    private async Task SaveEdit(TodoItem t)
+    {
+        error = null;
+
+        var inputId = GetEditInputId(t.Id);
+        var ok = await JS.InvokeAsync<bool>("todoForms.validateRequiredTrimmed", inputId);
+        if (!ok) return;
+
+        var title = editTitle.Trim();
+
+        try
+        {
+            var resp = await Http.PutAsJsonAsync($"api/todos/{t.Id}", new { Title = title, IsDone = t.IsDone });
+            if (!resp.IsSuccessStatusCode)
+            {
+                error = await resp.Content.ReadAsStringAsync();
+                return;
+            }
+
+            var updated = await resp.Content.ReadFromJsonAsync<TodoItem>(
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+            if (updated is not null)
+            {
+                var idx = todos.FindIndex(x => x.Id == t.Id);
+                if (idx >= 0) todos[idx] = updated;
+
+                CancelEdit();
+            }
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+        }
+    }
+
+    private async Task ToggleDone(TodoItem t, bool isDone)
+    {
+        error = null;
+
+        try
+        {
+            // Title değişmeden sadece done güncelliyoruz
+            var resp = await Http.PutAsJsonAsync($"api/todos/{t.Id}", new { Title = t.Title, IsDone = isDone });
+            if (!resp.IsSuccessStatusCode)
+            {
+                error = await resp.Content.ReadAsStringAsync();
+                return;
+            }
+
+            var updated = await resp.Content.ReadFromJsonAsync<TodoItem>(
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+            if (updated is not null)
+            {
+                var idx = todos.FindIndex(x => x.Id == t.Id);
+                if (idx >= 0) todos[idx] = updated;
+            }
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+        }
+    }
+
+    private async Task DeleteTodo(TodoItem t)
+    {
+        error = null;
+
+        try
+        {
+            var resp = await Http.DeleteAsync($"api/todos/{t.Id}");
+            if (!resp.IsSuccessStatusCode && resp.StatusCode != System.Net.HttpStatusCode.NotFound)
+            {
+                error = await resp.Content.ReadAsStringAsync();
+                return;
+            }
+
+            todos.RemoveAll(x => x.Id == t.Id);
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+        }
+    }
+
+    private static string GetEditInputId(int id) => $"editTodoTitle_{id}";
+
+    public sealed class TodoItem
+    {
+        public int Id { get; set; }
+        public string Title { get; set; } = "";
+        public bool IsDone { get; set; }
+        public DateTimeOffset CreatedAt { get; set; }
+    }
 }
+```
+
+> Bu yaklaşımda  **sayfa yenilenmez** . `HttpClient` çağrısı zaten browser tarafında **fetch/XHR (AJAX)** ile gider ve listeyi lokal güncelleyerek UI’a yansıtır.
+
+---
+
+# 3) JS: Form/Inputs boş olmasın (trim kontrol + Bootstrap invalid)
+
+## 3.1 JS dosyası oluştur
+
+`ClientApp/wwwroot/js/todoForms.js` oluştur:
+
+```js
+window.todoForms = {
+  validateRequiredTrimmed: function (inputId) {
+    const el = document.getElementById(inputId);
+    if (!el) return false;
+
+    const value = (el.value || "").trim();
+    const ok = value.length > 0;
+
+    // Bootstrap validation styling
+    el.classList.toggle("is-invalid", !ok);
+    el.classList.toggle("is-valid", ok);
+
+    return ok;
+  },
+
+  clearValidation: function (inputId) {
+    const el = document.getElementById(inputId);
+    if (!el) return;
+
+    el.classList.remove("is-invalid");
+    el.classList.remove("is-valid");
+    el.value = "";
+  }
+};
+```
+
+## 3.2 Script’i projeye ekle
+
+`ClientApp/wwwroot/index.html` içine (body kapanmadan önce) ekle:
+
+```html
+<script src="js/todoForms.js"></script>
 ```
 
 ---
 
-## 3) Test plan (hızlı)
+# 4) Menüye Todo link’i ekle
+
+`ClientApp/Shared/NavMenu.razor` içine:
+
+```razor
+<div class="nav-item px-3">
+    <NavLink class="nav-link" href="todo">
+        <span class="bi bi-check2-square-nav-menu" aria-hidden="true"></span> Todo
+    </NavLink>
+</div>
+```
+
+> Eğer `bi-check2-square-nav-menu` ikonun görünmezse, ya Bootstrap Icons CDN var ama template `*-nav-menu` custom svg sistemini kullanıyordur. O durumda `span` class’ını direkt `bi bi-check2-square` yapıp CSS gerektirmeden gösteririz.
+
+---
+
+# 5) Test
 
 1. Server çalıştır:
 
@@ -271,26 +554,20 @@ dotnet run
 
 3. Tarayıcı:
 
-* `/weather`
-* Mode = **Realtime API** → “London” → Get → current dolmalı
-* Mode = **Forecast API** → days=7 → Get → 7 günlük liste
-* Mode = **History API** → dt seç → Get → seçilen günün daily summary
-
-4. Direkt backend test:
-
-* `/api/weather/current?q=London`
-* `/api/weather/forecast?q=London&days=7`
-* `/api/weather/history?q=London&dt=2022-01-01` ([WeatherAPI](https://www.weatherapi.com/docs/?utm_source=chatgpt.com "Weather and Geolocation API JSON and XML"))
+* `/todo`
+* Boş eklemeye çalış → **engellenmeli**
+* Todo ekle → **sayfa yenilenmeden listede görünmeli**
+* Edit/Save → güncellenmeli
+* Delete → kaldırılmalı
+* Done checkbox → üstü çizilmeli + backend’de update olmalı
 
 ---
 
-## 4) Küçük ama kritik notlar
+## İstersen sonraki iyileştirme (1 mesajda eklerim)
 
-* **API_KEY hiçbir zaman frontend’e gönderilmez** (backend proxy) ✅
-* History API bazı planlarda kısıtlı olabilir; hata alırsan backend `Problem(...)` ile mesaj döndürür. ([WeatherAPI](https://www.weatherapi.com/docs/?utm_source=chatgpt.com "Weather and Geolocation API JSON and XML"))
-* History için `dt` formatı `yyyy-MM-dd`. ([WeatherAPI](https://www.weatherapi.com/docs/?utm_source=chatgpt.com "Weather and Geolocation API JSON and XML"))
+* ✅ “Edit” modunda Enter ile Save
+* ✅ “Done” olanları alta taşıma (sort)
+* ✅ LocalStorage ile client cache (sayfa kapansa bile kalsın)
+* ✅ Backend’i DB’ye (SQLite) bağlama
 
----
-
-İstersen bir sonraki adımda şunu da ekleyebilirim:
- **History mode** ’da daily summary yanında **hourly** verileri de (WeatherAPI’nin `forecastday[0].hour[]`) çekip tablo halinde göstermek.
+İstersen önce şunu söyle: Projeyi **hosted (tek server)** mı çalıştırıyorsun yoksa **client/server ayrı port** mu? Ona göre CORS/URL ayarını da netleştiririm.
