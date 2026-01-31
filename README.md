@@ -4,10 +4,9 @@ Bu klasor, Promt1.md adimlarina gore olusturulan Blazor (ClientApp) + Minimal AP
 
 ## Calistirma Adimlari
 
-1) API base URL ve cache ayari
+1) API base URL ayari
    - Dosya: `ClientApp/wwwroot/appsettings.json`
    - Varsayilan: `http://localhost:5249`
-   - Cache: `CacheSettings:ProductListSeconds` (istemci cache suresi)
    - ServerApp'in portu farkliysa bu degeri guncelleyin.
 
 2) ServerApp calistir
@@ -33,15 +32,6 @@ dotnet run
 - ClientApp, `FetchProducts` sayfasinda `/api/productlist` endpoint'inden veri ceker (kategori bilgisi nested gelir).
 - ServerApp tarafinda CORS acik (AllowAnyOrigin/AllowAnyHeader/AllowAnyMethod).
 - Guvenlik ihtiyaciniz varsa CORS politikasini sinirlandirin.
-- Performance: ClientApp tarafinda kisa sureli bellek ici cache ve ServerApp tarafinda MemoryCache kullanilir.
-- Cache suresi konfigurasyon ile belirlenir: `CacheSettings:ProductListSeconds`.
-
-## Basit Performans Testi
-
-1) Tarayici DevTools > Network tabini acin.
-2) `/fetchproducts` sayfasini acin ve `/api/productlist` istegini gorun.
-3) 30 saniye icinde baska bir sayfaya gidip geri donun; yeni bir istek gelmemelidir (client cache).
-4) 30 saniye gectikten sonra sayfayi tekrar acin; yeni istek gorunmelidir.
 
 ## Ornek API Cevabi (HTTP)
 
@@ -80,6 +70,6 @@ Ornek JSON:
 
 ## Dosyalar
 
-- `ServerApp/Program.cs`: Minimal API ve `/api/productlist` endpoint'i
+- `ServerApp/Program.cs`: Minimal API ve `/api/productlist` endpoint'i (nested category)
 - `ClientApp/Pages/FetchProducts.razor`: UI + API cagri ve hata yonetimi
 - `ClientApp/wwwroot/appsettings.json`: ApiBaseUrl ayari
