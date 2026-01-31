@@ -7,8 +7,16 @@ Env.TraversePath().Load();
 var builder = WebApplication.CreateBuilder(args);
 builder.Configuration.AddEnvironmentVariables();
 
-// CORS servisini ekle
-builder.Services.AddCors();
+builder.Services.AddControllers();
+
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy(
+        "ClientCors",
+        policy =>
+            policy.WithOrigins("http://localhost:5181").AllowAnyHeader().AllowAnyMethod()
+    );
+});
 
 // Performance: cache
 builder.Services.AddMemoryCache();
@@ -49,8 +57,9 @@ builder.Services.AddHttpClient(
 
 var app = builder.Build();
 
-// CORS middleware (client'ın API'ye erişmesini sağlar)
-app.UseCors(static policy => policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader());
+app.UseCors("ClientCors");
+
+app.MapControllers();
 
 // ✅ Doğru endpoint: /api/productlist
 app.MapGet(

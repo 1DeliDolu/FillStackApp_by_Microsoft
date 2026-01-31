@@ -74,7 +74,7 @@ else
                         <tr>
                             <th scope="row" class="@SortClass(nameof(Product.Id))">@p.Id</th>
                             <td class="@($"fw-semibold {SortClass(nameof(Product.Name))}")">@p.Name</td>
-                            <td class="@SortClass(CategorySortKey)">@p.Category?.Name</td>
+                            <td class="@SortClass(CategorySortKey)">@((p.Category?.Name) ?? "-")</td>
                             <td class="@($"text-end {SortClass(nameof(Product.Price))}")">$@p.Price.ToString("F2")</td>
                             <td class="@($"text-end {SortClass(nameof(Product.Stock))}")">@p.Stock</td>
                         </tr>
