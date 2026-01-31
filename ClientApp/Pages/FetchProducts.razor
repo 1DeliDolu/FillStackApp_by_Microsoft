@@ -1,0 +1,72 @@
+@page "/fetchproducts"
+@inject ProductService ProductService
+
+<h3>Product List</h3>
+
+@if (isLoading)
+{
+    <p><em>Loading...</em></p>
+}
+else if (!string.IsNullOrWhiteSpace(errorMessage))
+{
+    <p class="text-danger">@errorMessage</p>
+}
+else if (products is { Length: > 0 })
+{
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Price</th>
+                <th>Stock</th>
+                <th>Category</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var product in products)
+            {
+                <tr>
+                    <td>@product.Name</td>
+                    <td>$@product.Price</td>
+                    <td>@product.Stock</td>
+                    <td>@product.Category?.Name</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+}
+else
+{
+    <p>No products found.</p>
+}
+
+@code {
+    private Product[]? products;
+    private bool isLoading = true;
+    private string? errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            products = await ProductService.GetProductsAsync(cts.Token);
+
+            if (products is null)
+            {
+                errorMessage = "No data returned from the API.";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = "Error loading products. See console for details.";
+            Console.WriteLine($"Error: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    // Copilot suggestion: keep the UI lean by delegating API + caching to a service.
+}
